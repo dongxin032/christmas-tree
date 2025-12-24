@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>粒子圣诞树 - 手势控制</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        body {
+            background: linear-gradient(to bottom, #0a0e27 0%, #1a1a2e 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            touch-action: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .greeting {
+            position: absolute;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            font-family: 'Arial', sans-serif;
+            font-size: 36px;
+            font-weight: bold;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            animation: glow 2s ease-in-out infinite alternate;
+            z-index: 10;
+        }
+
+        .gesture-hint {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-family: 'Arial', sans-serif;
+            font-size: 16px;
+            text-align: center;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px 30px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .easter-egg-hint {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #FFD700;
+            font-family: 'Arial', sans-serif;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            z-index: 30;
+            opacity: 0;
+            pointer-events: none;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+            animation: easterEggPop 2s ease-out forwards;
+        }
+
+        @keyframes easterEggPop {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+            20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+            80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+        }
+
+        .gesture-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 100px;
+            color: rgba(255, 255, 255, 0.8);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 20;
+            animation: fadeOut 1s ease-out forwards;
+        }
+
+        @keyframes glow {
+            from {
+                text-shadow: 0 0 10px #fff, 0 0 20px #fff, 0 0 30px #ff0080;
+            }
+            to {
+                text-shadow: 0 0 20px #fff, 0 0 30px #ff4da6, 0 0 40px #ff4da6;
+            }
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 1; transform: translate(-50%, -50%) scale(0.5); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+        }
+    </style>
+</head>
+<body>
+    <div class="greeting">Merry Christmas!</div>
+    <div class="gesture-hint">
+        向上滑动：展开 | 向下滑动：重力效果<br>
+        向左滑动：彩虹旋转 | 向右滑动：烟花绽放
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let animationMode = 'normal';
+        let animationProgress = 0;
+        let globalRotation = 0;
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initParticles();
+        });
+
+        class Particle {
+            constructor(x, y, color, type = 'tree') {
+                this.baseX = x;
+                this.baseY = y;
+                this.x = x;
+                this.y = y;
+                this.originalColor = color;
+                this.color = color;
+                this.type = type;
+                this.size = Math.random() * 3 + 1;
+                this.speedX = Math.random() * 2 - 1;
+                this.speedY = Math.random() * 2 - 1;
+                this.angle = Math.random() * Math.PI * 2;
+                this.angleSpeed = Math.random() * 0.02 - 0.01;
+                this.distance = Math.random() * 50 + 10;
+                this.brightness = Math.random() * 0.5 + 0.5;
+                this.brightnessSpeed = Math.random() * 0.02 + 0.01;
+
+                // 动画属性
+                this.explosionX = 0;
+                this.explosionY = 0;
+                this.explosionSpeed = Math.random() * 5 + 2;
+                this.gravity = 0;
+                this.rotation = 0;
+                this.fireworkVelocityX = 0;
+                this.fireworkVelocityY = 0;
+
+                // 彩蛋动画属性
+                this.heartTargetX = 0;
+                this.heartTargetY = 0;
+                this.spiralAngle = 0;
+                this.matrixTargetX = 0;
+                this.matrixTargetY = 0;
+            }
+
+            update() {
+                this.angle += this.angleSpeed;
+                this.brightness += this.brightnessSpeed;
+
+                if (this.brightness >= 1 || this.brightness <= 0.3) {
+                    this.brightnessSpeed *= -1;
+                }
+
+                if (animationMode === 'normal') {
+                    const offsetX = Math.cos(this.angle) * this.distance * 0.3;
+                    const offsetY = Math.sin(this.angle) * this.distance * 0.3;
+                    this.x = this.baseX + offsetX;
+                    this.y = this.baseY + offsetY;
+                    this.color = this.originalColor;
+                }
+                else if (animationMode === 'explode') {
+                    const centerX = canvas.width / 2;
+                    const centerY = canvas.height / 2;
+
+                    const targetX = this.baseX + this.explosionX;
+                    const targetY = this.baseY + this.explosionY;
+
+                    this.x += (targetX - this.x) * 0.1;
+                    this.y += (targetY - this.y) * 0.1;
+                }
+                else if (animationMode === 'gravity') {
+                    this.speedY += this.gravity;
+                    this.y += this.speedY;
+                    this.x += this.speedX * 0.5;
+
+                    if (this.y > canvas.height + 50) {
+                        this.y = this.baseY;
+                        this.x = this.baseX;
+                        this.speedY = 0;
+                        this.gravity = 0;
+                    }
+                }
+                else if (animationMode === 'rainbow') {
+                    this.rotation += 0.05;
+                    const hue = (this.rotation * 100 + (this.baseY / canvas.height) * 360) % 360;
+                    this.color = `hsl(${hue}, 80%, 60%)`;
+
+                    const rotatedX = (this.baseX - canvas.width / 2) * Math.cos(globalRotation) -
+                                   (this.baseY - canvas.height / 2) * Math.sin(globalRotation) + canvas.width / 2;
+                    const rotatedY = (this.baseX - canvas.width / 2) * Math.sin(globalRotation) +
+                                   (this.baseY - canvas.height / 2) * Math.cos(globalRotation) + canvas.height / 2;
+
+                    this.x = rotatedX;
+                    this.y = rotatedY;
+                }
+                else if (animationMode === 'firework') {
+                    this.fireworkVelocityY += 0.3;
+                    this.x += this.fireworkVelocityX;
+                    this.y += this.fireworkVelocityY;
+                    this.brightness *= 0.98;
+
+                    if (this.brightness < 0.1) {
+                        this.x = this.baseX;
+                        this.y = this.baseY;
+                        this.brightness = 1;
+                        this.fireworkVelocityX = 0;
+                        this.fireworkVelocityY = 0;
+                    }
+                }
+                else if (animationMode === 'heart') {
+                    this.x += (this.heartTargetX - this.x) * 0.1;
+                    this.y += (this.heartTargetY - this.y) * 0.1;
+                    this.color = '#FF1493';
+                }
+                else if (animationMode === 'spiral') {
+                    this.spiralAngle += 0.1;
+                    const radius = (this.spiralAngle * 3) % 200;
+                    this.x = canvas.width / 2 + Math.cos(this.spiralAngle) * radius;
+                    this.y = canvas.height - (this.spiralAngle * 5) % canvas.height;
+                    const hue = (this.spiralAngle * 50) % 360;
+                    this.color = `hsl(${hue}, 100%, 70%)`;
+                }
+                else if (animationMode === 'matrix') {
+                    this.y += 5;
+                    this.color = '#00FF00';
+
+                    if (this.y > canvas.height) {
+                        this.y = this.matrixTargetY;
+                        this.x = this.matrixTargetX;
+                    }
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.brightness;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.globalAlpha = this.brightness * 0.5;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        let particles = [];
+
+        function initParticles() {
+            particles = [];
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const startY = canvas.height * 0.15;
+            const treeHeight = canvas.height * 0.6;
+
+            // 树的主体
+            for (let i = 0; i < 300; i++) {
+                const progress = i / 300;
+                const y = startY + treeHeight * progress;
+                const width = (progress * 200) + 10;
+                const x = centerX + (Math.random() - 0.5) * width;
+
+                const colorChoice = Math.random();
+                let color;
+                if (colorChoice < 0.7) {
+                    color = `rgb(${50 + Math.random() * 100}, ${150 + Math.random() * 105}, ${50 + Math.random() * 100})`;
+                } else if (colorChoice < 0.85) {
+                    color = `rgb(255, ${100 + Math.random() * 155}, ${100 + Math.random() * 155})`;
+                } else {
+                    color = `rgb(255, ${200 + Math.random() * 55}, ${100 + Math.random() * 100})`;
+                }
+
+                const particle = new Particle(x, y, color, 'tree');
+                const angle = Math.atan2(y - centerY, x - centerX);
+                const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+                particle.explosionX = Math.cos(angle) * dist * 1.5;
+                particle.explosionY = Math.sin(angle) * dist * 1.5;
+                particles.push(particle);
+            }
+
+            // 树顶的星星
+            for (let i = 0; i < 30; i++) {
+                const angle = (i / 30) * Math.PI * 2;
+                const radius = 15 + Math.random() * 10;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = startY - 30 + Math.sin(angle) * radius;
+                const particle = new Particle(x, y, '#FFD700', 'star');
+                const dist = 50;
+                particle.explosionX = Math.cos(angle) * dist;
+                particle.explosionY = Math.sin(angle) * dist;
+                particles.push(particle);
+            }
+
+            // 树干
+            for (let i = 0; i < 30; i++) {
+                const x = centerX + (Math.random() - 0.5) * 30;
+                const y = startY + treeHeight + Math.random() * 50;
+                const particle = new Particle(x, y, '#8B4513', 'trunk');
+                particle.explosionX = (Math.random() - 0.5) * 100;
+                particle.explosionY = Math.random() * 100;
+                particles.push(particle);
+            }
+
+            // 装饰球
+            for (let i = 0; i < 20; i++) {
+                const progress = Math.random();
+                const y = startY + treeHeight * progress;
+                const width = (progress * 200) + 10;
+                const x = centerX + (Math.random() - 0.5) * width * 0.7;
+
+                const colors = ['#FF0000', '#0000FF', '#FFD700', '#FF1493', '#00CED1'];
+                const color = colors[Math.floor(Math.random() * colors.length)];
+
+                const ball = new Particle(x, y, color, 'ball');
+                ball.size = Math.random() * 4 + 3;
+                const angle = Math.atan2(y - centerY, x - centerX);
+                const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+                ball.explosionX = Math.cos(angle) * dist * 2;
+                ball.explosionY = Math.sin(angle) * dist * 2;
+                particles.push(ball);
+            }
+
+            // 雪花效果
+            for (let i = 0; i < 50; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const snow = new Particle(x, y, '#FFFFFF', 'snow');
+                snow.size = Math.random() * 2 + 1;
+                snow.speedY = Math.random() * 1 + 0.5;
+                particles.push(snow);
+            }
+        }
+
+        function animate() {
+            ctx.fillStyle = 'rgba(10, 14, 39, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            particles.forEach((particle, index) => {
+                particle.update();
+                particle.draw();
+
+                // 雪花持续飘落
+                if (particle.type === 'snow' && animationMode === 'normal') {
+                    particle.y += particle.speedY;
+                    if (particle.y > canvas.height) {
+                        particle.y = 0;
+                        particle.x = Math.random() * canvas.width;
+                    }
+                }
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        // 手势识别
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchEndX = 0;
+        let touchEndY = 0;
+        let lastTapTime = 0;
+        let tapCount = 0;
+        let longPressTimer = null;
+        let isLongPress = false;
+
+        function showEasterEggHint(text) {
+            const hint = document.createElement('div');
+            hint.className = 'easter-egg-hint';
+            hint.textContent = text;
+            document.body.appendChild(hint);
+            setTimeout(() => hint.remove(), 2000);
+        }
+
+        function handleGesture() {
+            if (isLongPress) {
+                isLongPress = false;
+                return;
+            }
+
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+            const minSwipeDistance = 50;
+
+            // 检测点击/轻触（几乎没有移动）
+            if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+                handleTap();
+                return;
+            }
+
+            if (Math.abs(deltaX) < minSwipeDistance && Math.abs(deltaY) < minSwipeDistance) {
+                return;
+            }
+
+            if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                // 水平滑动
+                if (deltaX > 0) {
+                    // 向右 - 烟花效果
+                    triggerFirework();
+                } else {
+                    // 向左 - 彩虹旋转
+                    triggerRainbow();
+                }
+            } else {
+                // 垂直滑动
+                if (deltaY > 0) {
+                    // 向下 - 重力效果
+                    triggerGravity();
+                } else {
+                    // 向上 - 爆炸展开
+                    triggerExplode();
+                }
+            }
+        }
+
+        // 点击处理（双击/三击检测）
+        function handleTap() {
+            const currentTime = Date.now();
+            const tapDelay = 400; // 多击间隔时间
+
+            if (currentTime - lastTapTime < tapDelay) {
+                tapCount++;
+            } else {
+                tapCount = 1;
+            }
+
+            lastTapTime = currentTime;
+
+            if (tapCount === 2) {
+                // 双击 - 心形彩蛋
+                triggerHeart();
+                showEasterEggHint('💖 Love Mode 💖');
+                tapCount = 0;
+            } else if (tapCount === 3) {
+                // 三击 - Matrix效果
+                triggerMatrix();
+                showEasterEggHint('⚡ Matrix Mode ⚡');
+                tapCount = 0;
+            }
+        }
+
+        // 长按处理
+        function handleLongPress() {
+            isLongPress = true;
+            triggerSpiral();
+            showEasterEggHint('🌪️ Spiral Mode 🌪️');
+        }
+
+        // 彩蛋1：心形效果
+        function triggerHeart() {
+            animationMode = 'heart';
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            particles.forEach((particle, index) => {
+                if (particle.type !== 'snow') {
+                    // 心形参数方程
+                    const t = (index / particles.length) * Math.PI * 2;
+                    const scale = 100;
+                    const x = scale * 16 * Math.pow(Math.sin(t), 3);
+                    const y = -scale * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+
+                    particle.heartTargetX = centerX + x;
+                    particle.heartTargetY = centerY + y / 13;
+                }
+            });
+
+            setTimeout(() => {
+                animationMode = 'normal';
+                particles.forEach(particle => {
+                    particle.x = particle.baseX;
+                    particle.y = particle.baseY;
+                    particle.color = particle.originalColor;
+                });
+            }, 4000);
+        }
+
+        // 彩蛋2：螺旋上升
+        function triggerSpiral() {
+            animationMode = 'spiral';
+
+            particles.forEach(particle => {
+                if (particle.type !== 'snow') {
+                    particle.spiralAngle = Math.random() * Math.PI * 2;
+                }
+            });
+
+            setTimeout(() => {
+                animationMode = 'normal';
+                particles.forEach(particle => {
+                    particle.x = particle.baseX;
+                    particle.y = particle.baseY;
+                    particle.color = particle.originalColor;
+                });
+            }, 5000);
+        }
+
+        // 彩蛋3：Matrix代码雨
+        function triggerMatrix() {
+            animationMode = 'matrix';
+
+            particles.forEach(particle => {
+                if (particle.type !== 'snow') {
+                    particle.matrixTargetX = Math.random() * canvas.width;
+                    particle.matrixTargetY = -Math.random() * 500;
+                    particle.x = particle.matrixTargetX;
+                    particle.y = particle.matrixTargetY;
+                }
+            });
+
+            setTimeout(() => {
+                animationMode = 'normal';
+                particles.forEach(particle => {
+                    particle.x = particle.baseX;
+                    particle.y = particle.baseY;
+                    particle.color = particle.originalColor;
+                });
+            }, 4000);
+        }
+
+        // 向上：爆炸式展开
+        function triggerExplode() {
+            animationMode = 'explode';
+            animationProgress = 0;
+
+            particles.forEach(particle => {
+                if (particle.type !== 'snow') {
+                    particle.explosionX = (Math.random() - 0.5) * canvas.width * 0.8;
+                    particle.explosionY = (Math.random() - 0.5) * canvas.height * 0.8;
+                }
+            });
+
+            setTimeout(() => {
+                animationMode = 'normal';
+                particles.forEach(particle => {
+                    particle.x = particle.baseX;
+                    particle.y = particle.baseY;
+                });
+            }, 3000);
+        }
+
+        // 向下：重力下落效果
+        function triggerGravity() {
+            animationMode = 'gravity';
+
+            particles.forEach(particle => {
+                if (particle.type !== 'snow') {
+                    particle.gravity = Math.random() * 0.5 + 0.3;
+                    particle.speedY = 0;
+                    particle.speedX = (Math.random() - 0.5) * 2;
+                }
+            });
+
+            setTimeout(() => {
+                animationMode = 'normal';
+                particles.forEach(particle => {
+                    particle.x = particle.baseX;
+                    particle.y = particle.baseY;
+                    particle.speedY = 0;
+                    particle.gravity = 0;
+                });
+            }, 4000);
+        }
+
+        // 向左：彩虹旋转
+        function triggerRainbow() {
+            animationMode = 'rainbow';
+            globalRotation = 0;
+
+            const rotationInterval = setInterval(() => {
+                globalRotation += 0.05;
+            }, 16);
+
+            setTimeout(() => {
+                clearInterval(rotationInterval);
+                animationMode = 'normal';
+                globalRotation = 0;
+                particles.forEach(particle => {
+                    particle.x = particle.baseX;
+                    particle.y = particle.baseY;
+                    particle.color = particle.originalColor;
+                });
+            }, 4000);
+        }
+
+        // 向右：烟花效果
+        function triggerFirework() {
+            animationMode = 'firework';
+
+            particles.forEach(particle => {
+                if (particle.type !== 'snow') {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 10 + 5;
+                    particle.fireworkVelocityX = Math.cos(angle) * speed;
+                    particle.fireworkVelocityY = Math.sin(angle) * speed - 5;
+                    particle.brightness = 1;
+                }
+            });
+
+            setTimeout(() => {
+                animationMode = 'normal';
+                particles.forEach(particle => {
+                    particle.x = particle.baseX;
+                    particle.y = particle.baseY;
+                    particle.brightness = Math.random() * 0.5 + 0.5;
+                    particle.fireworkVelocityX = 0;
+                    particle.fireworkVelocityY = 0;
+                });
+            }, 3000);
+        }
+
+        // 触摸事件监听（移动端）
+        canvas.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+
+            // 开始长按检测
+            longPressTimer = setTimeout(() => {
+                handleLongPress();
+            }, 800); // 长按800ms触发
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            // 清除长按计时器
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            touchEndX = e.changedTouches[0].screenX;
+            touchEndY = e.changedTouches[0].screenY;
+            handleGesture();
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            // 如果手指移动，取消长按检测
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        });
+
+        // 鼠标事件监听（桌面端）
+        let mouseDown = false;
+        canvas.addEventListener('mousedown', (e) => {
+            mouseDown = true;
+            touchStartX = e.clientX;
+            touchStartY = e.clientY;
+
+            // 开始长按检测（鼠标）
+            longPressTimer = setTimeout(() => {
+                handleLongPress();
+            }, 800);
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            // 清除长按计时器
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            if (mouseDown) {
+                mouseDown = false;
+                touchEndX = e.clientX;
+                touchEndY = e.clientY;
+                handleGesture();
+            }
+        });
+
+        // 鼠标移动交互效果（仅在normal模式下）
+        canvas.addEventListener('mousemove', (e) => {
+            // 如果鼠标移动且按下，取消长按检测
+            if (mouseDown && longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            if (!mouseDown && animationMode === 'normal') {
+                const mouseX = e.clientX;
+                const mouseY = e.clientY;
+
+                particles.forEach(particle => {
+                    const dx = mouseX - particle.x;
+                    const dy = mouseY - particle.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < 100) {
+                        const force = (100 - distance) / 100;
+                        particle.x -= dx * force * 0.1;
+                        particle.y -= dy * force * 0.1;
+                    }
+                });
+            }
+        });
+
+        // 键盘快捷键（方便桌面端测试）
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp') {
+                triggerExplode();
+            } else if (e.key === 'ArrowDown') {
+                triggerGravity();
+            } else if (e.key === 'ArrowLeft') {
+                triggerRainbow();
+            } else if (e.key === 'ArrowRight') {
+                triggerFirework();
+            } else if (e.key === 'h' || e.key === 'H') {
+                // H键 - 心形彩蛋
+                triggerHeart();
+                showEasterEggHint('💖 Love Mode 💖');
+            } else if (e.key === 's' || e.key === 'S') {
+                // S键 - 螺旋彩蛋
+                triggerSpiral();
+                showEasterEggHint('🌪️ Spiral Mode 🌪️');
+            } else if (e.key === 'm' || e.key === 'M') {
+                // M键 - Matrix彩蛋
+                triggerMatrix();
+                showEasterEggHint('⚡ Matrix Mode ⚡');
+            }
+        });
+
+        initParticles();
+        animate();
+    </script>
+</body>
+</html>
